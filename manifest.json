@@ -1,0 +1,61 @@
+{
+  "app": "blockmd",
+  "schema_version": 1,
+  "id": "block-titlebar",
+  "name": {
+    "zh": "顶栏图标",
+    "en": "Titlebar Icons"
+  },
+  "version": "1.0.0",
+  "beta": true,
+  "author": "Block Community",
+  "repo": "blockmd-plugins/block-titlebar",
+  "summary": {
+    "zh": "自定义顶栏右上角显示的图标，隐藏不需要的按钮",
+    "en": "Choose which icons appear in the top-right titlebar"
+  },
+  "entry": {
+    "command": [
+      "python3",
+      "-u",
+      "main.py"
+    ]
+  },
+  "permissions": [
+    "storage",
+    "ui:titlebar",
+    "ui:settings"
+  ],
+  "surfaces": [
+    "settings_page"
+  ],
+  "contributes": {
+    "settings_sections": [
+      {
+        "id": "titlebar-icons",
+        "tab": "appearance",
+        "title": {
+          "zh": "顶栏右上角图标",
+          "en": "Titlebar Icons"
+        }
+      }
+    ]
+  },
+  "icon": {
+    "view_box": "0 0 24 24",
+    "fill_paths": [
+      "M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4H4V6Z"
+    ],
+    "stroke_paths": [
+      "M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z",
+      "M4 10h16",
+      "M7.5 14h6",
+      "M7.5 17h4"
+    ],
+    "accent_paths": [
+      "M11 7m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+      "M14 7m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+      "M17 7m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"
+    ]
+  }
+}
