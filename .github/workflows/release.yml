@@ -111,6 +111,11 @@ jobs:
                   mode = meta.split(b" ", 1)[0]
                   require(mode != b"120000" and not os.path.islink(repo / rel), f"Tracked symlink is not allowed: {rel}")
 
+          def strip_html_comments(text):
+              text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+              text = re.sub(r"<!--.*$", "", text, flags=re.S)
+              return text.strip()
+
           def read_strict_readme(repo, filename):
               path = repo / filename
               p = str(path)
@@ -284,10 +289,9 @@ jobs:
 
               zh_readme = read_strict_readme(repo, "README.md")
               en_readme = read_strict_readme(repo, "README.en.md")
-              require(HAN.search(zh_readme), "README.md must contain Chinese text")
+              require(HAN.search(strip_html_comments(zh_readme)), "README.md must contain visible Chinese text")
               require(not CHINESE.search(en_readme), "README.en.md must contain English-only text")
-              en_visible = re.sub(r"<!--.*?-->", "", en_readme, flags=re.S)
-              require(re.search(r"[A-Za-z]", en_visible), "README.en.md must contain at least one ASCII letter")
+              require(re.search(r"[A-Za-z]", strip_html_comments(en_readme)), "README.en.md must contain at least one visible ASCII letter")
               require(zh_readme != en_readme, "The two README files must differ")
 
               surfaces = declared_surfaces(manifest)
@@ -475,6 +479,21 @@ jobs:
           with open(os.path.join(pkg_dir, "manifest.json"), "w", encoding="utf-8") as f:
               json.dump(manifest, f, ensure_ascii=False, indent=2)
               f.write("\n")
+
+          for root_dir, dir_names, file_names in os.walk(pkg_dir, followlinks=False):
+              for name in dir_names + file_names:
+                  full_path = os.path.join(root_dir, name)
+                  assert not os.path.islink(full_path), (
+                      f"Symlink is not allowed in release package: {os.path.relpath(full_path, pkg_dir)}"
+                  )
+          for readme_name in ("README.md", "README.en.md"):
+              readme_path = os.path.join(pkg_dir, readme_name)
+              assert not os.path.islink(readme_path) and os.path.isfile(readme_path), (
+                  f"Release package missing regular file: {readme_name}"
+              )
+              with open(readme_path, "rb") as rf:
+                  readme_text = rf.read().decode("utf-8").lstrip("\ufeff").strip()
+              assert readme_text, f"Release package {readme_name} must not be empty"
 
           archive_name = f"{plugin_id}-{tag}.tar.gz"
           subprocess.check_call(["tar", "-czf", archive_name, "-C", "dist", plugin_id])
