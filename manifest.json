@@ -8,8 +8,8 @@
   },
   "version": "1.0.0",
   "beta": true,
-  "author": "Block Community",
-  "repo": "blockmd-plugins/block-titlebar",
+  "author": "eachann1024",
+  "repo": "eachann1024/block-titlebar",
   "summary": {
     "zh": "自定义顶栏右上角显示的图标，隐藏不需要的按钮",
     "en": "Choose which icons appear in the top-right titlebar"
