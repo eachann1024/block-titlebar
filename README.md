@@ -11,4 +11,4 @@
 
 ## 安装方式
 
-在 Block 中打开「设置 → 应用商店」，搜索并安装本插件，或直接填入 `blockmd-plugins/block-titlebar` 安装。
+在 Block 中打开「设置 → 应用商店」，搜索并安装本插件，或直接填入 `eachann1024/block-titlebar` 安装。

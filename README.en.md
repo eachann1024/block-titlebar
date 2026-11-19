@@ -11,4 +11,4 @@ Choose which icons appear in the top-right titlebar and hide buttons you do not 
 
 ## Installation
 
-In Block, open **Settings -> App Store** and search for Titlebar Icons. You can also install it directly by entering `blockmd-plugins/block-titlebar`.
+In Block, open **Settings -> App Store** and search for Titlebar Icons. You can also install it directly by entering `eachann1024/block-titlebar`.
