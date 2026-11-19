@@ -34,6 +34,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import json
+          import os
           from pathlib import Path
           from queue import Empty, Queue
           import re
@@ -42,14 +43,21 @@ jobs:
           from tempfile import TemporaryDirectory
           from threading import Thread
 
-          CHINESE = re.compile(r"[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]")
-          HAN = re.compile(r"[\u4e00-\u9fff]")
-          EMOJI = re.compile(
-              r"[\U0001f000-\U0001faff\u2300-\u23ff\u25aa-\u27ff"
-              r"\u2934\u2935\u2b05-\u2b07\u2b1b\u2b1c\u2b50\u2b55"
-              r"\u3030\u303d\u3297\u3299\u2139\u2194-\u2199"
-              r"\u21a9\u21aa\u00a9\u00ae\u203c\u2049\u2122\ufe0f\u20e3]"
+          CHINESE = re.compile(
+              r"[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
+              r"\ufe10-\ufe1f\ufe30-\ufe4f\uff00-\uffef"
+              r"\U00020000-\U0002ffff\U00030000-\U000323af]"
           )
+          HAN = re.compile(
+              r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
+              r"\U00020000-\U0002ffff\U00030000-\U000323af]"
+          )
+          EMOJI = re.compile(
+              r"[©®‼⁉™ℹ↔-↙↩↪⌚-⌛⌨⏏⏩-⏳⏸-⏺Ⓜ▪▫▶◀◻-◾"
+              r"\u2600-\u27bf⤴⤵⬅-⬇⬛⬜⭐⭕〰〽㊗㊙"
+              r"\u20e3\ufe00-\ufe0f\U0001f000-\U0001faff]"
+          )
+          MAX_README_BYTES = 512 * 1024
 
           def require(condition, message):
               if not condition:
@@ -62,12 +70,50 @@ jobs:
                       require(not CHINESE.search(value), f"{context}: Chinese text in {value!r}")
               elif isinstance(value, dict):
                   for key, child in value.items():
+                      check_text(key, "zh", f"{context}.<key>")
                       check_text(child, locale, f"{context}.{key}")
               elif isinstance(value, list):
                   for index, child in enumerate(value):
                       check_text(child, locale, f"{context}[{index}]")
 
-          def run_plugin(entry, locale, root):
+          def check_contributes_en(value, context="manifest.contributes"):
+              if isinstance(value, dict):
+                  for key, child in value.items():
+                      if key == "en":
+                          check_text(child, "en", f"{context}.en")
+                      else:
+                          check_contributes_en(child, f"{context}.{key}")
+              elif isinstance(value, list):
+                  for index, child in enumerate(value):
+                      check_contributes_en(child, f"{context}[{index}]")
+
+          def declared_surfaces(manifest):
+              surfaces = list(manifest.get("surfaces") or [])
+              contributes = manifest.get("contributes") or {}
+              for sec in contributes.get("settings_sections") or []:
+                  surfaces.append(f"settings_section:{sec['id']}")
+              for panel in contributes.get("panels") or []:
+                  surfaces.append(f"panel:{panel['id']}")
+              for dialog in contributes.get("dialogs") or []:
+                  surfaces.append(f"dialog:{dialog['id']}")
+              require(surfaces, "manifest must declare at least one surface")
+              return list(dict.fromkeys(surfaces))
+
+          def read_strict_readme(repo, filename):
+              path = repo / filename
+              p = str(path)
+              require(not os.path.islink(p) and os.path.isfile(p), f"{filename} must be a non-symlink regular file")
+              raw = path.read_bytes()
+              require(len(raw) <= MAX_README_BYTES, f"{filename} exceeds {MAX_README_BYTES} bytes")
+              try:
+                  text = raw.decode("utf-8")
+              except UnicodeDecodeError as exc:
+                  raise ValueError(f"{filename} must be valid UTF-8: {exc}") from None
+              text = text.lstrip("\ufeff").strip()
+              require(bool(text), f"{filename} must not be empty")
+              return text
+
+          def run_plugin(entry, locale, root, plugin_id, surfaces):
               data_dir = root / "Data"
               downloads = root / "Downloads"
               data_dir.mkdir()
@@ -155,7 +201,7 @@ jobs:
 
               try:
                   init = rpc("plugin.initialize", {
-                      "plugin_id": "block-titlebar",
+                      "plugin_id": plugin_id,
                       "locale": locale,
                       "data_dir": str(data_dir),
                       "downloads_dir": str(downloads),
@@ -163,12 +209,14 @@ jobs:
                   })
                   require(init.get("ready") is True, f"{locale}: plugin not ready")
 
-                  titles = []
-                  for surface in ("settings_page", "settings_section:titlebar-icons"):
+                  pages = {}
+                  for surface in surfaces:
                       res = rpc("plugin.render", {"surface": surface})
                       page = res["page"]
+                      require(isinstance(page.get("title"), str) and page["title"].strip(),
+                              f"{locale} {surface}: missing page title")
                       check_text(page, locale, f"{locale} {surface}")
-                      titles.append(page["title"])
+                      pages[surface] = page
 
                   rendered = rpc("plugin.render", {
                       "surface": "settings_section:titlebar-icons",
@@ -193,7 +241,7 @@ jobs:
 
                   require(rpc("plugin.shutdown").get("ok") is True, f"{locale}: shutdown failed")
                   require(process.wait(timeout=10) == 0, f"{locale}: plugin exited non-zero")
-                  return titles
+                  return pages
               finally:
                   if process.poll() is None:
                       process.kill()
@@ -205,24 +253,40 @@ jobs:
           def main():
               repo = Path.cwd()
               manifest = json.loads((repo / "manifest.json").read_text(encoding="utf-8"))
-              for field in ("name", "summary"):
-                  for locale in ("zh", "en"):
-                      value = manifest[field][locale]
-                      require(isinstance(value, str) and value.strip(), f"Missing manifest.{field}.{locale}")
-              check_text(manifest, "zh", "manifest")
+              plugin_id = manifest.get("id")
+              require(isinstance(plugin_id, str) and plugin_id.strip(), "Missing manifest.id")
+              plugin_id = plugin_id.strip()
+              require(plugin_id != "block-diagnostics", "Reserved plugin id: block-diagnostics")
 
-              zh_readme = (repo / "README.md").read_text(encoding="utf-8").strip()
-              en_readme = (repo / "README.en.md").read_text(encoding="utf-8").strip()
-              require(zh_readme and HAN.search(zh_readme), "README.md must contain Chinese text")
-              require(en_readme and not CHINESE.search(en_readme), "README.en.md must contain English-only text")
+              for field in ("name", "summary"):
+                  translations = manifest.get(field)
+                  require(isinstance(translations, dict), f"manifest.{field} must be an object")
+                  for locale in ("zh", "en"):
+                      value = translations.get(locale)
+                      require(isinstance(value, str) and value.strip(), f"Missing manifest.{field}.{locale}")
+                      if locale == "en":
+                          require(not CHINESE.search(value), f"manifest.{field}.en: Chinese text in {value!r}")
+              check_text(manifest, "zh", "manifest")
+              check_contributes_en(manifest.get("contributes"))
+
+              zh_readme = read_strict_readme(repo, "README.md")
+              en_readme = read_strict_readme(repo, "README.en.md")
+              require(HAN.search(zh_readme), "README.md must contain Chinese text")
+              require(not CHINESE.search(en_readme), "README.en.md must contain English-only text")
+              require(re.search(r"[A-Za-z]", en_readme), "README.en.md must contain at least one ASCII letter")
               require(zh_readme != en_readme, "The two README files must differ")
 
+              surfaces = declared_surfaces(manifest)
               entry = manifest["entry"]["command"]
               entry = [str(repo / part) if (repo / part).is_file() else part for part in entry]
               with TemporaryDirectory(prefix="block-titlebar-zh-") as tzh, TemporaryDirectory(prefix="block-titlebar-en-") as ten:
-                  zh_titles = run_plugin(entry, "zh", Path(tzh))
-                  en_titles = run_plugin(entry, "en", Path(ten))
-              require(zh_titles[0] != en_titles[0], "Chinese and English page titles must differ")
+                  zh_pages = run_plugin(entry, "zh", Path(tzh), plugin_id, surfaces)
+                  en_pages = run_plugin(entry, "en", Path(ten), plugin_id, surfaces)
+              for surface in surfaces:
+                  require(zh_pages[surface]["title"] != en_pages[surface]["title"],
+                          f"{surface}: Chinese and English page titles must differ")
+                  require(zh_pages[surface] != en_pages[surface],
+                          f"{surface}: Chinese and English rendered pages must differ")
               print("Bilingual release gate passed.")
 
           try:
