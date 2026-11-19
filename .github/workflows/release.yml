@@ -30,14 +30,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check bilingual documentation and plugin UI
+      - name: Plan version and package plugin
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          FORCE: ${{ inputs.force == true && 'true' || 'false' }}
         run: |
           python3 - <<'PY'
+          import datetime
           import json
           import os
           from pathlib import Path
           from queue import Empty, Queue
           import re
+          import shutil
           import subprocess
           import sys
           from tempfile import TemporaryDirectory
@@ -99,25 +108,23 @@ jobs:
               require(surfaces, "manifest must declare at least one surface")
               return list(dict.fromkeys(surfaces))
 
-          def check_no_symlinks(repo):
-              raw = subprocess.check_output(["git", "ls-files", "-s", "-z"], cwd=repo)
-              for entry in raw.split(b"\x00"):
-                  if not entry:
-                      continue
-                  meta, _, rel_bytes = entry.partition(b"\t")
-                  rel = rel_bytes.decode("utf-8", errors="surrogateescape")
-                  if rel == ".gitignore" or rel.startswith(".github/"):
-                      continue
-                  mode = meta.split(b" ", 1)[0]
-                  require(mode != b"120000" and not os.path.islink(repo / rel), f"Tracked symlink is not allowed: {rel}")
+          def check_no_symlinks_tree(pkg_dir):
+              require(not os.path.islink(pkg_dir) and pkg_dir.is_dir(), f"Release package dir must be a non-symlink directory: {pkg_dir}")
+              for root_dir, dir_names, file_names in os.walk(pkg_dir, followlinks=False):
+                  for name in dir_names + file_names:
+                      full_path = os.path.join(root_dir, name)
+                      require(
+                          not os.path.islink(full_path),
+                          f"Symlink is not allowed in release package: {os.path.relpath(full_path, pkg_dir)}",
+                      )
 
           def strip_html_comments(text):
               text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
               text = re.sub(r"<!--.*$", "", text, flags=re.S)
               return text.strip()
 
-          def read_strict_readme(repo, filename):
-              path = repo / filename
+          def read_strict_readme(pkg_dir, filename):
+              path = pkg_dir / filename
               p = str(path)
               require(not os.path.islink(p) and os.path.isfile(p), f"{filename} must be a non-symlink regular file")
               raw = path.read_bytes()
@@ -130,7 +137,45 @@ jobs:
               require(bool(text), f"{filename} must not be empty")
               return text
 
-          def run_plugin(entry, locale, root, plugin_id, surfaces):
+          def resolve_entry_command(pkg_dir, manifest):
+              entry = manifest.get("entry")
+              require(isinstance(entry, dict), "manifest.entry must be an object")
+              raw_cmd = entry.get("command")
+              require(isinstance(raw_cmd, list) and len(raw_cmd) > 0, "manifest.entry.command must be a non-empty array")
+              for idx, part in enumerate(raw_cmd):
+                  require(isinstance(part, str), f"manifest.entry.command[{idx}] must be a string")
+              cmd0 = raw_cmd[0]
+              require(cmd0.strip() != "", "manifest.entry.command[0] must not be empty")
+              require(cmd0 == cmd0.strip(), "manifest.entry.command[0] must not have leading/trailing whitespace")
+              require("\x00" not in cmd0 and ":" not in cmd0, f"Invalid entry.command[0]: {cmd0!r}")
+
+              normalized = cmd0.replace("\\", "/")
+              require(not normalized.startswith("/") and not os.path.isabs(cmd0), f"entry.command[0] must not be an absolute path: {cmd0!r}")
+              raw_parts = [p for p in normalized.split("/") if p != ""]
+              require(".." not in raw_parts, f"entry.command[0] must not contain '..': {cmd0!r}")
+              require(normalized not in (".", "./") and raw_parts != ["."], f"entry.command[0] must not be '.': {cmd0!r}")
+
+              if "/" in normalized or normalized.startswith("."):
+                  pkg_root = pkg_dir.resolve()
+                  rel_parts = [p for p in raw_parts if p != "."]
+                  require(bool(rel_parts), f"Invalid relative entry.command[0]: {cmd0!r}")
+                  cur = pkg_dir
+                  for part in rel_parts[:-1]:
+                      cur = cur / part
+                      require(not os.path.islink(cur) and cur.is_dir(), f"entry.command[0] parent missing or symlink: {cmd0!r}")
+                  target = cur / rel_parts[-1]
+                  require(not os.path.islink(target) and target.is_file(), f"entry.command[0] must be a non-symlink regular file in dist package: {cmd0!r}")
+                  resolved = target.resolve()
+                  require(resolved.is_relative_to(pkg_root) and resolved != pkg_root, f"entry.command[0] escapes dist package: {cmd0!r}")
+                  resolved_cmd0 = str(resolved)
+              else:
+                  found = shutil.which(cmd0)
+                  require(found is not None, f"entry.command[0] is not a valid PATH command: {cmd0!r}")
+                  resolved_cmd0 = found
+
+              return [resolved_cmd0, *raw_cmd[1:]]
+
+          def run_plugin(entry, pkg_dir, locale, root, plugin_id, surfaces):
               data_dir = root / "Data"
               downloads = root / "Downloads"
               data_dir.mkdir()
@@ -177,8 +222,9 @@ jobs:
                       return {"ok": True, "items": current_items()}
                   raise ValueError(f"Unexpected host request: {method}")
 
+              env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
               process = subprocess.Popen(
-                  entry, cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                  entry, cwd=pkg_dir, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                   text=True, encoding="utf-8",
               )
               replies = Queue()
@@ -267,10 +313,15 @@ jobs:
                   process.stdin.close()
                   process.stdout.close()
 
-          def main():
-              repo = Path.cwd()
-              check_no_symlinks(repo)
-              manifest = json.loads((repo / "manifest.json").read_text(encoding="utf-8"))
+          def validate_staged_package(pkg_dir):
+              check_no_symlinks_tree(pkg_dir)
+              for py_path in sorted(pkg_dir.rglob("*.py")):
+                  if py_path.is_file():
+                      compile(py_path.read_bytes(), str(py_path), "exec")
+
+              manifest_path = pkg_dir / "manifest.json"
+              require(not os.path.islink(manifest_path) and manifest_path.is_file(), "Staged package missing manifest.json")
+              manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
               plugin_id = manifest.get("id")
               require(isinstance(plugin_id, str) and plugin_id.strip(), "Missing manifest.id")
               plugin_id = plugin_id.strip()
@@ -287,44 +338,26 @@ jobs:
               check_text(manifest, "zh", "manifest")
               check_contributes_en(manifest.get("contributes"))
 
-              zh_readme = read_strict_readme(repo, "README.md")
-              en_readme = read_strict_readme(repo, "README.en.md")
+              zh_readme = read_strict_readme(pkg_dir, "README.md")
+              en_readme = read_strict_readme(pkg_dir, "README.en.md")
               require(HAN.search(strip_html_comments(zh_readme)), "README.md must contain visible Chinese text")
               require(not CHINESE.search(en_readme), "README.en.md must contain English-only text")
               require(re.search(r"[A-Za-z]", strip_html_comments(en_readme)), "README.en.md must contain at least one visible ASCII letter")
+              check_text(zh_readme, "zh", "README.md")
+              check_text(en_readme, "en", "README.en.md")
               require(zh_readme != en_readme, "The two README files must differ")
 
               surfaces = declared_surfaces(manifest)
-              entry = manifest["entry"]["command"]
-              entry = [str(repo / part) if (repo / part).is_file() else part for part in entry]
+              entry = resolve_entry_command(pkg_dir, manifest)
               with TemporaryDirectory(prefix="block-titlebar-zh-") as tzh, TemporaryDirectory(prefix="block-titlebar-en-") as ten:
-                  zh_pages = run_plugin(entry, "zh", Path(tzh), plugin_id, surfaces)
-                  en_pages = run_plugin(entry, "en", Path(ten), plugin_id, surfaces)
+                  zh_pages = run_plugin(entry, pkg_dir, "zh", Path(tzh), plugin_id, surfaces)
+                  en_pages = run_plugin(entry, pkg_dir, "en", Path(ten), plugin_id, surfaces)
               for surface in surfaces:
                   require(zh_pages[surface]["title"] != en_pages[surface]["title"],
                           f"{surface}: Chinese and English page titles must differ")
                   require(zh_pages[surface] != en_pages[surface],
                           f"{surface}: Chinese and English rendered pages must differ")
-              print("Bilingual release gate passed.")
-
-          try:
-              main()
-          except Exception as exc:
-              print(f"Bilingual release gate failed: {exc}", file=sys.stderr)
-              sys.exit(1)
-          PY
-
-      - name: Plan version and package plugin
-        id: plan
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          FORCE: ${{ inputs.force == true && 'true' || 'false' }}
-        run: |
-          python3 - <<'PY'
-          import datetime, json, os, py_compile, re, shutil, subprocess, sys
+              print("Bilingual release gate passed on staged dist package.")
 
           repo = os.environ["REPO"]
           event = os.environ["EVENT_NAME"]
@@ -359,10 +392,6 @@ jobs:
           assert m_base, f"manifest.version must be X.Y.Z, got {base_ver}"
           base_major, base_minor = int(m_base.group(1)), int(m_base.group(2))
           plugin_title = (manifest.get("name", {}).get("en") or plugin_id).strip()
-
-          for p in sh("git", "ls-files").splitlines():
-              if p.endswith(".py") and os.path.exists(p):
-                  py_compile.compile(p, doraise=True)
 
           head_sha = sh("git", "rev-parse", "HEAD")
 
@@ -480,20 +509,11 @@ jobs:
               json.dump(manifest, f, ensure_ascii=False, indent=2)
               f.write("\n")
 
-          for root_dir, dir_names, file_names in os.walk(pkg_dir, followlinks=False):
-              for name in dir_names + file_names:
-                  full_path = os.path.join(root_dir, name)
-                  assert not os.path.islink(full_path), (
-                      f"Symlink is not allowed in release package: {os.path.relpath(full_path, pkg_dir)}"
-                  )
-          for readme_name in ("README.md", "README.en.md"):
-              readme_path = os.path.join(pkg_dir, readme_name)
-              assert not os.path.islink(readme_path) and os.path.isfile(readme_path), (
-                  f"Release package missing regular file: {readme_name}"
-              )
-              with open(readme_path, "rb") as rf:
-                  readme_text = rf.read().decode("utf-8").lstrip("\ufeff").strip()
-              assert readme_text, f"Release package {readme_name} must not be empty"
+          try:
+              validate_staged_package(Path(pkg_dir))
+          except Exception as exc:
+              print(f"Bilingual release gate failed: {exc}", file=sys.stderr)
+              sys.exit(1)
 
           archive_name = f"{plugin_id}-{tag}.tar.gz"
           subprocess.check_call(["tar", "-czf", archive_name, "-C", "dist", plugin_id])
