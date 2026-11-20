@@ -171,7 +171,14 @@ class TitlebarPlugin:
             return self._normalize_items(raw_items)
         return self._fallback_items()
 
-    def _set_hidden(self, bridge, hidden_ids):
+    def _refresh_other_surface(self, bridge, current_surface):
+        other = SETTINGS_SECTION_SURFACE if current_surface == SETTINGS_PAGE_SURFACE else SETTINGS_PAGE_SURFACE
+        try:
+            bridge.call_host("host.ui.refresh", {"surface": other})
+        except HostRPCError:
+            pass
+
+    def _set_hidden(self, bridge, hidden_ids, current_surface=None):
         cleaned = self._clean_hidden(hidden_ids)
         self.cached_hidden = list(cleaned)
         updated_items = None
@@ -183,6 +190,8 @@ class TitlebarPlugin:
             if exc.code != -32601:
                 raise
         bridge.call_host("host.storage.set", {"key": STORAGE_KEY, "value": cleaned})
+        if current_surface:
+            self._refresh_other_surface(bridge, current_surface)
         if updated_items is not None:
             return updated_items
         return self._get_items(bridge)
@@ -236,13 +245,14 @@ class TitlebarPlugin:
             if surface == SETTINGS_SECTION_SURFACE
             else self._tr("顶栏图标", "Titlebar Icons")
         )
+        card_title = "" if surface == SETTINGS_SECTION_SURFACE else self._tr("顶栏右上角图标", "Titlebar Icons")
         return {
             "title": title,
             "status": status,
             "cards": [
                 {
                     "id": "titlebar-icons",
-                    "title": self._tr("顶栏右上角图标", "Titlebar Icons"),
+                    "title": card_title,
                     "items": card_items,
                 }
             ],
@@ -300,7 +310,7 @@ class TitlebarPlugin:
                         else:
                             next_hidden.add(item["id"])
                 if touched and next_hidden != current_hidden:
-                    items = self._set_hidden(bridge, sorted(next_hidden))
+                    items = self._set_hidden(bridge, sorted(next_hidden), current_surface=surface)
                 accepted = {
                     self._control_id(item["id"]): not bool(item.get("hidden"))
                     for item in items
@@ -314,7 +324,7 @@ class TitlebarPlugin:
             surface = self._validate_surface(params)
             action_id = str(params.get("action_id") or "")
             if action_id == "show_all":
-                items = self._set_hidden(bridge, [])
+                items = self._set_hidden(bridge, [], current_surface=surface)
                 status = self._tr("已显示全部顶栏图标", "All titlebar icons are now shown")
                 return {
                     "ok": True,
