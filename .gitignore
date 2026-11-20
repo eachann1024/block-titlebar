@@ -1,0 +1,20 @@
+# Local agent prompts (never commit or push)
+/AGENTS.md
+/CLAUDE.md
+
+# Design files (never commit or push)
+designs/
+*.dc.html
+*.pen
+*.fig
+*.sketch
+*.xd
+*.psd
+
+# Build & runtime artifacts
+__pycache__/
+*.pyc
+.DS_Store
+dist/
+*.tar.gz
+release-notes.md
