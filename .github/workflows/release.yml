@@ -221,6 +221,8 @@ jobs:
                           if slot_id != "more":
                               hidden.add(slot_id)
                       return {"ok": True, "items": current_items()}
+                  if method == "host.ui.refresh":
+                      return {"ok": True}
                   raise ValueError(f"Unexpected host request: {method}")
 
               env = {k: os.environ[k] for k in ("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "SYSTEMROOT", "COMSPEC") if k in os.environ}
