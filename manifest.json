@@ -26,6 +26,20 @@
     "ui:titlebar",
     "ui:settings"
   ],
+  "permission_reasons": {
+    "storage": {
+      "zh": "保存已隐藏的顶栏图标列表配置",
+      "en": "Save the list of hidden titlebar icons"
+    },
+    "ui:titlebar": {
+      "zh": "读取顶栏图标项并控制各个按钮的显示与隐藏",
+      "en": "Read titlebar items and control visibility of individual buttons"
+    },
+    "ui:settings": {
+      "zh": "在「设置 → 外观」中嵌入顶栏图标管理区块并同步刷新",
+      "en": "Embed titlebar icon settings under Appearance and refresh the UI"
+    }
+  },
   "surfaces": [
     "settings_page"
   ],
