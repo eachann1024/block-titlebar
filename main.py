@@ -292,12 +292,18 @@ class TitlebarPlugin:
             items = self._get_items(bridge)
             values = params.get("values")
             if isinstance(values, dict) and values:
+                visible_ids = {item["id"] for item in items}
                 current_hidden = {
                     item["id"]
                     for item in items
                     if item.get("hidden") and not self._is_locked(item)
                 }
-                next_hidden = set(current_hidden)
+                preserved_hidden = {
+                    slot_id
+                    for slot_id in (self.cached_hidden or [])
+                    if slot_id.startswith("plugin:") and slot_id not in visible_ids
+                }
+                next_hidden = set(current_hidden) | preserved_hidden
                 touched = False
                 for item in items:
                     if self._is_locked(item):
@@ -309,7 +315,7 @@ class TitlebarPlugin:
                             next_hidden.discard(item["id"])
                         else:
                             next_hidden.add(item["id"])
-                if touched and next_hidden != current_hidden:
+                if touched and next_hidden != (current_hidden | preserved_hidden):
                     items = self._set_hidden(bridge, sorted(next_hidden), current_surface=surface)
                 accepted = {
                     self._control_id(item["id"]): not bool(item.get("hidden"))
