@@ -1,14 +1,11 @@
-# Titlebar Icons (block-titlebar)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/card-en-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/card-en-light.png">
+  <img alt="Titlebar Icons" src="assets/card-en-light.png">
+</picture>
 
-Choose which icons appear in the top-right titlebar and hide buttons you do not need.
+- **Per-button switches**: Hide built-in actions or icons added by other plugins.
+- **Instant save**: Changes take effect immediately from Settings -> Appearance.
+- **Safe restore**: Page Actions stays pinned, plus a one-click Show All button.
 
-## Features
-
-- Toggle visibility for each titlebar icon from the plugin settings page or **Settings -> Appearance -> Titlebar Icons**.
-- Hide built-in buttons as well as titlebar buttons contributed by other plugins, with changes saved and applied immediately.
-- Keeps the **Page Actions** button always visible and non-editable so page actions remain reachable.
-- Includes a **Show all** button to restore every hidden titlebar icon in one click.
-
-## Installation
-
-In Block, open **Settings -> App Store** and search for Titlebar Icons. You can also install it directly by entering `eachann1024/block-titlebar`.
+**Install**: Open Block Settings -> App Store and search **Titlebar Icons**, or enter `eachann1024/block-titlebar`.

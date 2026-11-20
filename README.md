@@ -1,14 +1,11 @@
-# 顶栏图标 (block-titlebar)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/card-zh-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/card-zh-light.png">
+  <img alt="顶栏图标" src="assets/card-zh-light.png">
+</picture>
 
-自定义顶栏右上角显示的图标，隐藏不需要的按钮。
+- **逐个自由显隐**：内置按钮与其他插件挂载的顶栏图标都能按需隐藏。
+- **改完即刻生效**：在「设置 → 外观」或插件页切换开关，自动保存。
+- **防误藏保护**：「页面操作」入口始终保留，随时支持「全部显示」一键还原。
 
-## 功能说明
-
-- 在插件设置页与「设置 → 外观 → 顶栏右上角图标」中为每个顶栏按钮提供显示开关
-- 支持隐藏内置按钮与其它插件添加的顶栏按钮，修改后立即生效并自动保存
-- 「页面操作」入口始终保留且不可隐藏，防止无法访问页面操作菜单
-- 提供「全部显示」一键恢复按钮
-
-## 安装方式
-
-在 Block 中打开「设置 → 应用商店」，搜索并安装本插件，或直接填入 `eachann1024/block-titlebar` 安装。
+**安装**：打开 Block「设置 → 应用商店」搜索 **顶栏图标**，或手动填入 `eachann1024/block-titlebar`。
