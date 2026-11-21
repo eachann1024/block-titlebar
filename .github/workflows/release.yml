@@ -286,7 +286,7 @@ jobs:
                       pages[surface] = page
 
                   rendered = rpc("plugin.render", {
-                      "surface": "settings_section:titlebar-icons",
+                      "surface": "settings_page",
                       "values": {"show_feedback": False, "show_wrap": False},
                   })
                   check_text(rendered["page"], locale, f"{locale} toggle")
