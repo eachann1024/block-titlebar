@@ -5,7 +5,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 const PROVIDERS = [
-  { model: "agy-cli/gemini-3.8-flash", url: "http://100.118.27.43:3425/v1/chat/completions", gate: "MAC_MAGPIE_REACHABLE", gateReason: "Mac 不在线", timeoutMs: 45_000 },
+  { model: "agy-cli/gemini-3.8-flash", url: "http://100.118.27.43:3425/v1/chat/completions", gate: "MAC_MAGPIE_REACHABLE", gateReason: "Mac 不在线", timeoutMs: 120_000 },
   { model: "gpt-6-luna", url: "http://100.115.90.80:3425/v1/chat/completions", gate: "MAGPIE_REACHABLE", gateReason: "CI 未连通 VPS Magpie", timeoutMs: 90_000 },
   { model: "deepseek-flash", url: "http://100.115.90.80:3425/v1/chat/completions", gate: "MAGPIE_REACHABLE", gateReason: "CI 未连通 VPS Magpie", timeoutMs: 90_000 },
 ];
