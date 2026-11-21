@@ -12,7 +12,10 @@ SETTINGS_PAGE_SURFACE = "settings_page"
 SETTINGS_SECTION_SURFACE = "settings_section:titlebar-icons"
 SUPPORTED_SURFACES = {SETTINGS_PAGE_SURFACE, SETTINGS_SECTION_SURFACE}
 LOCKED_SLOT_IDS = {"more"}
-PREVIEW_ORDER = ("wrap", "zoom", "reveal", "plugin:", "feedback", "ai", "send_all", "more")
+SOURCE_SLOT_IDS = ("wrap", "zoom", "reveal")
+PREVIEW_SKIP_IDS = {"reveal"}
+MARKDOWN_ORDER = ("plugin:", "feedback", "ai", "send_all", "more")
+SOURCE_ORDER = ("wrap", "zoom", "plugin:", "feedback", "ai", "more")
 CHINESE_TEXT = re.compile(r"[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]")
 
 BUILTIN_SLOTS = (
@@ -213,37 +216,54 @@ class TitlebarPlugin:
         return dict(icon) if self.item_icons and isinstance(icon, dict) else None
 
     @staticmethod
-    def _preview_rank(slot_id):
-        for rank, key in enumerate(PREVIEW_ORDER):
+    def _rank(slot_id, order):
+        for rank, key in enumerate(order):
             if slot_id == key or (key.endswith(":") and slot_id.startswith(key)):
                 return rank
-        return len(PREVIEW_ORDER)
+        return None
 
-    def _build_preview_card(self, items):
-        visible = [item for item in items if not item.get("hidden")]
-        visible.sort(key=lambda item: self._preview_rank(item["id"]))
+    def _strip_icons(self, item):
+        icon = self._row_icon(item)
+        if icon is None:
+            return []
+        label = str(item["label"])
+        if item["id"] == "zoom" and icon.get("name"):
+            return [
+                {"name": "tb-minus", "tooltip": label},
+                {"chip": "100%", "tooltip": label},
+                {"name": "tb-plus", "tooltip": label},
+            ]
+        icon["tooltip"] = label
+        return [icon]
+
+    def _build_strip(self, items, order, label):
+        visible = [
+            item for item in items
+            if not item.get("hidden") and item["id"] not in PREVIEW_SKIP_IDS and self._rank(item["id"], order) is not None
+        ]
+        visible.sort(key=lambda item: self._rank(item["id"], order))
         icons = []
         for item in visible:
-            icon = self._row_icon(item)
-            if icon is None:
-                continue
-            icon["tooltip"] = str(item["label"])
-            icons.append(icon)
+            icons.extend(self._strip_icons(item))
+        return {
+            "kind": "icon_strip",
+            "label": self._tr(f"{label} · {len(visible)} 个", f"{label} · {len(visible)}"),
+            "icons": icons,
+            "empty_text": self._tr("不显示图标", "No icons shown"),
+        }
+
+    def _build_preview_card(self, items):
         return {
             "id": "titlebar-preview",
             "title": self._tr("预览", "Preview"),
-            "meta": self._tr(f"显示 {len(icons)} 个图标", f"{len(icons)} icons shown"),
             "items": [
-                {
-                    "kind": "icon_strip",
-                    "icons": icons,
-                    "empty_text": self._tr("顶栏右上角不显示图标", "No titlebar icons shown"),
-                }
+                self._build_strip(items, MARKDOWN_ORDER, "Markdown"),
+                self._build_strip(items, SOURCE_ORDER, self._tr("源码模式", "Source")),
             ],
         }
 
-    def _build_page(self, surface, items, status=""):
-        card_items = []
+    def _build_rows(self, items):
+        rows = []
         locked_rows = []
         for item in items:
             icon = self._row_icon(item)
@@ -269,12 +289,15 @@ class TitlebarPlugin:
             }
             if icon:
                 switch["icon"] = icon
-            card_items.append(switch)
-
+            rows.append(switch)
         if locked_rows:
-            card_items.append({"kind": "kv", "rows": locked_rows})
+            rows.append({"kind": "kv", "rows": locked_rows})
+        return rows
 
-        card_items.append({
+    def _build_page(self, surface, items, status=""):
+        markdown_items = [item for item in items if item["id"] not in SOURCE_SLOT_IDS]
+        source_items = [item for item in items if item["id"] in SOURCE_SLOT_IDS]
+        actions = {
             "kind": "actions",
             "buttons": [
                 {
@@ -283,27 +306,19 @@ class TitlebarPlugin:
                     "variant": "secondary",
                 }
             ],
-        })
-
+        }
         title = (
             self._tr("顶栏右上角图标", "Titlebar Icons")
             if surface == SETTINGS_SECTION_SURFACE
             else self._tr("顶栏图标", "Titlebar Icons")
         )
-        card_title = "" if surface == SETTINGS_SECTION_SURFACE else self._tr("顶栏右上角图标", "Titlebar Icons")
         cards = []
         if self.item_icons:
             cards.append(self._build_preview_card(items))
-        cards.append({
-            "id": "titlebar-icons",
-            "title": card_title,
-            "items": card_items,
-        })
-        return {
-            "title": title,
-            "status": status,
-            "cards": cards,
-        }
+        cards.append({"id": "titlebar-markdown", "title": "Markdown", "items": self._build_rows(markdown_items)})
+        source_rows = self._build_rows(source_items) + [actions]
+        cards.append({"id": "titlebar-source", "title": self._tr("源码模式", "Source Mode"), "items": source_rows})
+        return {"title": title, "status": status, "cards": cards}
 
     def _validate_surface(self, params):
         surface = str((params or {}).get("surface") or SETTINGS_PAGE_SURFACE).strip() or SETTINGS_PAGE_SURFACE
