@@ -9,8 +9,7 @@ import sys
 
 STORAGE_KEY = "hidden_slots"
 SETTINGS_PAGE_SURFACE = "settings_page"
-SETTINGS_SECTION_SURFACE = "settings_section:titlebar-icons"
-SUPPORTED_SURFACES = {SETTINGS_PAGE_SURFACE, SETTINGS_SECTION_SURFACE}
+SUPPORTED_SURFACES = {SETTINGS_PAGE_SURFACE}
 LOCKED_SLOT_IDS = {"more"}
 SOURCE_SLOT_IDS = ("wrap", "zoom", "reveal")
 PREVIEW_SKIP_IDS = {"reveal"}
@@ -179,14 +178,7 @@ class TitlebarPlugin:
             return self._normalize_items(raw_items)
         return self._fallback_items()
 
-    def _refresh_other_surface(self, bridge, current_surface):
-        other = SETTINGS_SECTION_SURFACE if current_surface == SETTINGS_PAGE_SURFACE else SETTINGS_PAGE_SURFACE
-        try:
-            bridge.call_host("host.ui.refresh", {"surface": other})
-        except HostRPCError:
-            pass
-
-    def _set_hidden(self, bridge, hidden_ids, current_surface=None):
+    def _set_hidden(self, bridge, hidden_ids):
         cleaned = self._clean_hidden(hidden_ids)
         self.cached_hidden = list(cleaned)
         updated_items = None
@@ -198,8 +190,6 @@ class TitlebarPlugin:
             if exc.code != -32601:
                 raise
         bridge.call_host("host.storage.set", {"key": STORAGE_KEY, "value": cleaned})
-        if current_surface:
-            self._refresh_other_surface(bridge, current_surface)
         if updated_items is not None:
             return updated_items
         return self._get_items(bridge)
@@ -294,7 +284,7 @@ class TitlebarPlugin:
             rows.append({"kind": "kv", "rows": locked_rows})
         return rows
 
-    def _build_page(self, surface, items, status=""):
+    def _build_page(self, items, status=""):
         markdown_items = [item for item in items if item["id"] not in SOURCE_SLOT_IDS]
         source_items = [item for item in items if item["id"] in SOURCE_SLOT_IDS]
         actions = {
@@ -307,11 +297,7 @@ class TitlebarPlugin:
                 }
             ],
         }
-        title = (
-            self._tr("顶栏右上角图标", "Titlebar Icons")
-            if surface == SETTINGS_SECTION_SURFACE
-            else self._tr("顶栏图标", "Titlebar Icons")
-        )
+        title = self._tr("顶栏图标", "Titlebar Icons")
         cards = []
         if self.item_icons:
             cards.append(self._build_preview_card(items))
@@ -351,7 +337,7 @@ class TitlebarPlugin:
             return {"ready": True}
 
         if method == "plugin.render":
-            surface = self._validate_surface(params)
+            self._validate_surface(params)
             items = self._get_items(bridge)
             values = params.get("values")
             if isinstance(values, dict) and values:
@@ -379,7 +365,7 @@ class TitlebarPlugin:
                         else:
                             next_hidden.add(item["id"])
                 if touched and next_hidden != (current_hidden | preserved_hidden):
-                    items = self._set_hidden(bridge, sorted(next_hidden), current_surface=surface)
+                    items = self._set_hidden(bridge, sorted(next_hidden))
                 accepted = {
                     self._control_id(item["id"]): not bool(item.get("hidden"))
                     for item in items
@@ -387,19 +373,19 @@ class TitlebarPlugin:
                 }
             else:
                 accepted = self._current_values(items)
-            return {"page": self._build_page(surface, items), "values": accepted}
+            return {"page": self._build_page(items), "values": accepted}
 
         if method == "plugin.action":
-            surface = self._validate_surface(params)
+            self._validate_surface(params)
             action_id = str(params.get("action_id") or "")
             if action_id == "show_all":
-                items = self._set_hidden(bridge, [], current_surface=surface)
+                items = self._set_hidden(bridge, [])
                 status = self._tr("已显示全部顶栏图标", "All titlebar icons are now shown")
                 return {
                     "ok": True,
                     "tone": "success",
                     "values": self._current_values(items),
-                    "page": self._build_page(surface, items, status=status),
+                    "page": self._build_page(items, status=status),
                     "status": status,
                 }
             items = self._get_items(bridge)
@@ -408,7 +394,7 @@ class TitlebarPlugin:
                 "ok": False,
                 "tone": "warning",
                 "values": self._current_values(items),
-                "page": self._build_page(surface, items),
+                "page": self._build_page(items),
                 "status": status,
             }
 
