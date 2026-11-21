@@ -12,6 +12,7 @@ SETTINGS_PAGE_SURFACE = "settings_page"
 SETTINGS_SECTION_SURFACE = "settings_section:titlebar-icons"
 SUPPORTED_SURFACES = {SETTINGS_PAGE_SURFACE, SETTINGS_SECTION_SURFACE}
 LOCKED_SLOT_IDS = {"more"}
+PREVIEW_ORDER = ("wrap", "zoom", "reveal", "plugin:", "feedback", "ai", "send_all", "more")
 CHINESE_TEXT = re.compile(r"[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]")
 
 BUILTIN_SLOTS = (
@@ -95,6 +96,7 @@ class TitlebarPlugin:
         self.downloads_dir = os.path.expanduser("~/Downloads")
         self.locale = "zh"
         self.kv_tooltip = False
+        self.item_icons = False
         self.cached_hidden = None
 
     def _is_en(self):
@@ -151,12 +153,15 @@ class TitlebarPlugin:
                 continue
             locked = bool(raw.get("locked")) or slot_id in LOCKED_SLOT_IDS
             label = str(raw.get("label") or slot_id)
-            items.append({
+            item = {
                 "id": slot_id,
                 "label": label,
                 "locked": locked,
                 "hidden": False if locked else bool(raw.get("hidden")),
-            })
+            }
+            if isinstance(raw.get("icon"), dict):
+                item["icon"] = raw["icon"]
+            items.append(item)
         return items
 
     def _get_items(self, bridge):
@@ -203,15 +208,52 @@ class TitlebarPlugin:
             if not self._is_locked(item)
         }
 
+    def _row_icon(self, item):
+        icon = item.get("icon")
+        return dict(icon) if self.item_icons and isinstance(icon, dict) else None
+
+    @staticmethod
+    def _preview_rank(slot_id):
+        for rank, key in enumerate(PREVIEW_ORDER):
+            if slot_id == key or (key.endswith(":") and slot_id.startswith(key)):
+                return rank
+        return len(PREVIEW_ORDER)
+
+    def _build_preview_card(self, items):
+        visible = [item for item in items if not item.get("hidden")]
+        visible.sort(key=lambda item: self._preview_rank(item["id"]))
+        icons = []
+        for item in visible:
+            icon = self._row_icon(item)
+            if icon is None:
+                continue
+            icon["tooltip"] = str(item["label"])
+            icons.append(icon)
+        return {
+            "id": "titlebar-preview",
+            "title": self._tr("预览", "Preview"),
+            "meta": self._tr(f"显示 {len(icons)} 个图标", f"{len(icons)} icons shown"),
+            "items": [
+                {
+                    "kind": "icon_strip",
+                    "icons": icons,
+                    "empty_text": self._tr("顶栏右上角不显示图标", "No titlebar icons shown"),
+                }
+            ],
+        }
+
     def _build_page(self, surface, items, status=""):
         card_items = []
         locked_rows = []
         for item in items:
+            icon = self._row_icon(item)
             if self._is_locked(item):
                 row = {
                     "label": str(item["label"]),
                     "value": self._tr("始终显示", "Always shown"),
                 }
+                if icon:
+                    row["icon"] = icon
                 if self.kv_tooltip:
                     row["tooltip"] = self._tr(
                         "该入口始终显示在顶栏右上角，不可隐藏",
@@ -219,12 +261,15 @@ class TitlebarPlugin:
                     )
                 locked_rows.append(row)
                 continue
-            card_items.append({
+            switch = {
                 "kind": "switch",
                 "id": self._control_id(item["id"]),
                 "label": str(item["label"]),
                 "value": not bool(item.get("hidden")),
-            })
+            }
+            if icon:
+                switch["icon"] = icon
+            card_items.append(switch)
 
         if locked_rows:
             card_items.append({"kind": "kv", "rows": locked_rows})
@@ -246,16 +291,18 @@ class TitlebarPlugin:
             else self._tr("顶栏图标", "Titlebar Icons")
         )
         card_title = "" if surface == SETTINGS_SECTION_SURFACE else self._tr("顶栏右上角图标", "Titlebar Icons")
+        cards = []
+        if self.item_icons:
+            cards.append(self._build_preview_card(items))
+        cards.append({
+            "id": "titlebar-icons",
+            "title": card_title,
+            "items": card_items,
+        })
         return {
             "title": title,
             "status": status,
-            "cards": [
-                {
-                    "id": "titlebar-icons",
-                    "title": card_title,
-                    "items": card_items,
-                }
-            ],
+            "cards": cards,
         }
 
     def _validate_surface(self, params):
@@ -273,6 +320,7 @@ class TitlebarPlugin:
             self.locale = str(params.get("locale") or "zh")
             caps = set(params.get("ui_capabilities") or [])
             self.kv_tooltip = "kv_tooltip" in caps
+            self.item_icons = "item_icons" in caps
 
             stored = bridge.call_host("host.storage.get", {"key": STORAGE_KEY})
             if isinstance(stored, dict) and stored.get("found") and isinstance(stored.get("value"), list):
