@@ -6,7 +6,7 @@
     "zh": "顶栏图标",
     "en": "Titlebar Icons"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "beta": true,
   "author": "eachann1024",
   "repo": "eachann1024/block-titlebar",
@@ -23,8 +23,7 @@
   },
   "permissions": [
     "storage",
-    "ui:titlebar",
-    "ui:settings"
+    "ui:titlebar"
   ],
   "permission_reasons": {
     "storage": {
@@ -34,27 +33,11 @@
     "ui:titlebar": {
       "zh": "读取顶栏图标项并控制各个按钮的显示与隐藏",
       "en": "Read titlebar items and control visibility of individual buttons"
-    },
-    "ui:settings": {
-      "zh": "在「设置 → 外观」中嵌入顶栏图标管理区块并同步刷新",
-      "en": "Embed titlebar icon settings under Appearance and refresh the UI"
     }
   },
   "surfaces": [
     "settings_page"
   ],
-  "contributes": {
-    "settings_sections": [
-      {
-        "id": "titlebar-icons",
-        "tab": "appearance",
-        "title": {
-          "zh": "顶栏右上角图标",
-          "en": "Titlebar Icons"
-        }
-      }
-    ]
-  },
   "icon": {
     "view_box": "0 0 24 24",
     "fill_paths": [
