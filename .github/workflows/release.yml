@@ -19,8 +19,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: plugin-release-${{ github.ref }}
-  cancel-in-progress: false
+  group: plugin-release
+  cancel-in-progress: true
 
 jobs:
   release:
