@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: plugin-release-${{ github.ref }}
@@ -24,6 +25,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: release-notes
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -538,6 +540,38 @@ jobs:
               head_sha=head_sha,
           )
           PY
+
+      # 更新说明只经 tailnet 用 Magpie：Mac 在线先用 Mac 的 agy-cli/gemini-3.8-flash，再 VPS gpt-6-luna，最后 deepseek-flash。
+      # 与 Block 主仓 scripts/release/release-notes.mjs 的顺序保持一致；不要用 Google AI Studio key。
+      - name: Join tailnet
+        id: tailscale
+        if: steps.plan.outputs.should_release == 'yes'
+        continue-on-error: true
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4.4.0
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci-release-notes
+          version: "1.104.4"
+          ping: "100.115.90.80"
+          timeout: 1m
+          retry: "2"
+          args: --shields-up
+
+      - name: Write release notes with AI
+        if: steps.plan.outputs.should_release == 'yes'
+        env:
+          TAILNET: ${{ steps.tailscale.outcome }}
+        run: |
+          reach() { timeout "$3" bash -c "echo >/dev/tcp/$1/$2" 2>/dev/null && echo yes || echo no; }
+          if [ "$TAILNET" = "success" ]; then
+            export MAGPIE_REACHABLE=$(reach 100.115.90.80 3425 10)
+            export MAC_MAGPIE_REACHABLE=$(reach 100.118.27.43 3425 8)
+          else
+            export MAGPIE_REACHABLE=no MAC_MAGPIE_REACHABLE=no
+          fi
+          node .github/scripts/release-notes.mjs release-notes.md
+          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish GitHub Release
         if: steps.plan.outputs.should_release == 'yes'
